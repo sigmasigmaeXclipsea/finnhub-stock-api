@@ -59,6 +59,25 @@ app.get('/api/search/:query', async (req, res) => {
 console.log('DEBUG Render env PORT:', process.env.PORT);
 console.log('DEBUG Using PORT:', PORT);
 
+// Add this after your other endpoints
+app.get('/search', async (req, res) => {
+  const query = req.query.q;
+  if (!query || query.length < 1) {
+    return res.json({ result: [] });
+  }
+  try {
+    const response = await axios.get(
+      `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query)}&token=${FINNHUB_API_KEY}`
+    );
+    res.json(response.data); // Finnhub returns { count, result: [...] }
+  } catch (error) {
+    console.error('Finnhub search error:', error.message);
+    res.status(500).json({ error: 'Failed to search stocks' });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`🚀 Stock API server running on port ${PORT}`);
 });
+

@@ -56,6 +56,9 @@ app.get('/api/search/:query', async (req, res) => {
   }
 });
 
+console.log('DEBUG Render env PORT:', process.env.PORT);
+console.log('DEBUG Using PORT:', PORT);
+
 app.listen(PORT, () => {
   console.log(`🚀 Stock API server running on port ${PORT}`);
 });

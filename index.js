@@ -1,83 +1,55 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-
-const app = express();
-const PORT = process.env.PORT || 4000;
-const FINNHUB_API_KEY = 'd4ef1bpr01qrumpf5ojgd4ef1bpr01qrumpf5ok0';
-
-app.use(cors());
-app.use(express.json());
-
-// Health check endpoint
-app.get('/', (req, res) => {
-  res.json({ status: 'Finnhub Stock API is running!' });
-});
-
-// Get real-time stock quote
+// ==================== UNIFIED STOCK ENDPOINT (FIXED) ====================
 app.get('/api/stock/:symbol', async (req, res) => {
   const { symbol } = req.params;
+  const upperSymbol = symbol.toUpperCase();
+  
+  // Validate Russell 3000
+  if (!isRussell3000(upperSymbol)) {
+    return res.status(400).json({ 
+      error: `${upperSymbol} is not in Russell 3000 index` 
+    });
+  }
+  
+  // Check cache
+  const cacheKey = `stock:${upperSymbol}`;
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+  
   try {
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/quote?symbol=${symbol.toUpperCase()}&token=${FINNHUB_API_KEY}`
-    );
-    res.json(response.data);
+    // Fetch both quote and profile with queue
+    const [quoteResponse, profileResponse] = await Promise.all([
+      queueRequest(() =>
+        axios.get(
+          `https://finnhub.io/api/v1/quote?symbol=${upperSymbol}&token=${FINNHUB_API_KEY}`
+        )
+      ),
+      queueRequest(() =>
+        axios.get(
+          `https://finnhub.io/api/v1/stock/profile2?symbol=${upperSymbol}&token=${FINNHUB_API_KEY}`
+        )
+      )
+    ]);
+    
+    // IMPORTANT: Return the proper structure that frontend expects
+    const response = {
+      quote: quoteResponse.data,      // This is the price data (c, d, dp, etc.)
+      profile: profileResponse.data,  // This is the company data
+      cached: false
+    };
+    
+    setCached(cacheKey, response);
+    res.json(response);
   } catch (error) {
-    console.error('Finnhub API error:', error.message);
+    console.error(`Error fetching ${upperSymbol}:`, error.message);
+    
+    if (error.response?.status === 429) {
+      return res.status(429).json({ 
+        error: 'Rate limited - too many requests. Please try again in a moment.' 
+      });
+    }
+    
     res.status(500).json({ error: 'Failed to fetch stock data' });
   }
 });
-
-// Get company profile
-app.get('/api/company/:symbol', async (req, res) => {
-  const { symbol } = req.params;
-  try {
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/stock/profile2?symbol=${symbol.toUpperCase()}&token=${FINNHUB_API_KEY}`
-    );
-    res.json(response.data);
-  } catch (error) {
-    console.error('Company profile error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch company data' });
-  }
-});
-
-// Search for stocks
-app.get('/api/search/:query', async (req, res) => {
-  const { query } = req.params;
-  try {
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/search?q=${query}&token=${FINNHUB_API_KEY}`
-    );
-    res.json(response.data);
-  } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(500).json({ error: 'Failed to search stocks' });
-  }
-});
-
-console.log('DEBUG Render env PORT:', process.env.PORT);
-console.log('DEBUG Using PORT:', PORT);
-
-// Add this after your other endpoints
-app.get('/search', async (req, res) => {
-  const query = req.query.q;
-  if (!query || query.length < 1) {
-    return res.json({ result: [] });
-  }
-  try {
-    const response = await axios.get(
-      `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query)}&token=${FINNHUB_API_KEY}`
-    );
-    res.json(response.data); // Finnhub returns { count, result: [...] }
-  } catch (error) {
-    console.error('Finnhub search error:', error.message);
-    res.status(500).json({ error: 'Failed to search stocks' });
-  }
-});
-
-
-app.listen(PORT, () => {
-  console.log(`🚀 Stock API server running on port ${PORT}`);
-});
-
